@@ -1,1 +1,5 @@
 *.html linguist-generated=true
+.streamlit/
+data/
+__pycache__/
+*.ipynb
