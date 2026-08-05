@@ -7,3 +7,6 @@ Bu proje, Türkiye genelindeki farklı akaryakıt markalarının konum verilerin
 1. Bağımlılıkları yükleyin:
    ```bash
    pip install -r requirements.txt
+
+
+   

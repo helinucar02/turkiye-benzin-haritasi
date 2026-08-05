@@ -1,122 +1,120 @@
 import heapq
-from geopy.distance import geodesic
+import math
+import itertools  # Eşitlik bozucu sayaç için ekledik
 
 
-class Istasyon:
-    def __init__(self, istasyon_id, ad, enlem, boylam):
-        self.istasyon_id = istasyon_id
-        self.ad = ad
-        self.enlem = enlem
-        self.boylam = boylam
-
-
-class AracDurumu:
-    def __init__(
-        self, mevcut_istasyon, kalan_yakit, kat_edilen_mesafe, istasyon_zinciri
-    ):
-        self.mevcut_istasyon = mevcut_istasyon
-        self.kalan_yakit = kalan_yakit
-        self.kat_edilen_mesafe = kat_edilen_mesafe
-        self.istasyon_zinciri = istasyon_zinciri
-
-    # heapq modülünün sıralama yapabilmesi için
-    def __lt__(self, diger):
-        return self.kat_edilen_mesafe < diger.kat_edilen_mesafe
-
-
-def kus_ucusu_mesafe(istasyon1, istasyon2):
-    # Geopy ile offline (çevrimdışı) kuş uçuşu mesafe hesaplama
-    return geodesic(
-        (istasyon1.enlem, istasyon1.boylam), (istasyon2.enlem, istasyon2.boylam)
-    ).km
+def _kus_ucusu_mesafe(lat1, lon1, lat2, lon2):
+    """Haversine formülü ile iki koordinat arası kuş uçuşu mesafeyi (km) hesaplar."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 
 def a_star_rotasi_bul(
-    baslangic_noktasi, hedef_noktasi, istasyonlar_df, mesafe_matrisi, max_yakit, tuketim
+    baslangic_koordinati,
+    hedef_koordinati,
+    istasyonlar_df,
+    max_yakit,
+    tuketim,
+    esik_litre=3.0,
+    min_durak_mesafesi=40.0,
 ):
-    oncelikli_kuyruk = []
+    guvenli_menzil = (max_yakit - esik_litre) / tuketim
     ziyaret_edilenler = set()
 
-    baslangic_durumu = AracDurumu(
-        mevcut_istasyon=baslangic_noktasi,
-        kalan_yakit=max_yakit,
-        kat_edilen_mesafe=0,
-        istasyon_zinciri=[baslangic_noktasi],
+    # EŞİTLİK BOZUCU SAYAÇ (Tie-breaker)
+    sayac = itertools.count()
+
+    baslangic_mesafe = _kus_ucusu_mesafe(
+        baslangic_koordinati[0],
+        baslangic_koordinati[1],
+        hedef_koordinati[0],
+        hedef_koordinati[1],
     )
 
-    heapq.heappush(oncelikli_kuyruk, (0, baslangic_durumu))
+    # Kuyruk: (f_skoru, g_maliyeti, SAYAÇ, mevcut_id, mevcut_duraklar_listesi)
+    # next(sayac) her defasında benzersiz bir numara üretir
+    kuyruk = [(baslangic_mesafe, 0, next(sayac), "start", [])]
 
-    # Döngüde hızlı kullanmak için DataFrame'deki istasyonları bir listeye çeviriyoruz
-    aday_istasyonlar = []
-    for index, satir in istasyonlar_df.iterrows():
-        aday_istasyonlar.append(
-            Istasyon(satir["id"], satir["istasyon_adi"], satir["lat"], satir["lon"])
+    while kuyruk:
+        # Kuyruktan veri çekerken sayacı (_) ile yoksayıyoruz çünkü sadece sıralama için lazımdı
+        f_skor, g_maliyet, _, anlik_id, mevcut_duraklar = heapq.heappop(kuyruk)
+
+        # Hedefe ulaştıysak hesaplamayı bitir
+        if anlik_id == "end":
+            return mevcut_duraklar
+
+        if anlik_id in ziyaret_edilenler:
+            continue
+        ziyaret_edilenler.add(anlik_id)
+
+        # Anlık konumu belirle
+        if anlik_id == "start":
+            anlik_lat, anlik_lon = baslangic_koordinati[0], baslangic_koordinati[1]
+        else:
+            anlik_lat, anlik_lon = (
+                mevcut_duraklar[-1]["lat"],
+                mevcut_duraklar[-1]["lon"],
+            )
+
+        # 1. İHTİMAL: Buradan doğrudan hedefe GÜVENLİ menzil yetiyor mu?
+        hedefe_uzaklik = (
+            _kus_ucusu_mesafe(
+                anlik_lat, anlik_lon, hedef_koordinati[0], hedef_koordinati[1]
+            )
+            * 1.2
         )
 
-    # Nihai hedefi de gidilecek bir durak olarak listeye ekliyoruz
-    aday_istasyonlar.append(hedef_noktasi)
+        if hedefe_uzaklik <= guvenli_menzil:
+            yeni_g = g_maliyet + hedefe_uzaklik
+            heapq.heappush(
+                kuyruk, (yeni_g, yeni_g, next(sayac), "end", mevcut_duraklar)
+            )
 
-    while oncelikli_kuyruk:
-        guncel_puan, guncel_durum = heapq.heappop(oncelikli_kuyruk)
-        mevcut_ist = guncel_durum.mevcut_istasyon
+        # 2. İHTİMAL: Hedefe yetmiyorsa, menzil içindeki diğer mantıklı istasyonlara zıpla
+        for _, row in istasyonlar_df.iterrows():
+            ist_id = row["id"]
 
-        # Hedefe ulaştıysak mutlu son! Zinciri gönder
-        if mevcut_ist.istasyon_id == hedef_noktasi.istasyon_id:
-            return guncel_durum.istasyon_zinciri
-
-        if mevcut_ist.istasyon_id in ziyaret_edilenler:
-            continue
-
-        ziyaret_edilenler.add(mevcut_ist.istasyon_id)
-
-        # Etraftaki diğer istasyonları kontrol et
-        for aday_ist in aday_istasyonlar:
-            if (
-                aday_ist.istasyon_id == mevcut_ist.istasyon_id
-                or aday_ist.istasyon_id in ziyaret_edilenler
-            ):
+            if ist_id in ziyaret_edilenler:
                 continue
 
-            # OSRM Matrisinden mesafeyi çek. Eğer matriste yoksa (Örn: Başlangıç noktası) kuş uçuşu kullan.
-            if (
-                mesafe_matrisi
-                and (mevcut_ist.istasyon_id, aday_ist.istasyon_id) in mesafe_matrisi
-            ):
-                mesafe_km = (
-                    mesafe_matrisi[(mevcut_ist.istasyon_id, aday_ist.istasyon_id)]
-                    / 1000.0
+            mesafe = (
+                _kus_ucusu_mesafe(anlik_lat, anlik_lon, row["lat"], row["lon"]) * 1.2
+            )
+
+            if min_durak_mesafesi <= mesafe <= guvenli_menzil:
+                yeni_g = g_maliyet + mesafe
+                h_skor = _kus_ucusu_mesafe(
+                    row["lat"], row["lon"], hedef_koordinati[0], hedef_koordinati[1]
                 )
-            else:
-                mesafe_km = kus_ucusu_mesafe(mevcut_ist, aday_ist)
+                f_skor = yeni_g + h_skor
 
-            harcanacak_yakit = mesafe_km * tuketim
+                yeni_durak = {
+                    "id": ist_id,
+                    "ad": row.get("istasyon_adi", "Bilinmeyen İstasyon"),
+                    "lat": row["lat"],
+                    "lon": row["lon"],
+                    "marka": row.get("brand", "Bilinmiyor"),
+                }
 
-            # YAKIT KONTROLÜ (Budama)
-            if guncel_durum.kalan_yakit < harcanacak_yakit:
-                continue
+                # next(sayac) ile eşsiz numarayı ekliyoruz
+                heapq.heappush(
+                    kuyruk,
+                    (
+                        f_skor,
+                        yeni_g,
+                        next(sayac),
+                        ist_id,
+                        mevcut_duraklar + [yeni_durak],
+                    ),
+                )
 
-            yeni_zincir = list(guncel_durum.istasyon_zinciri)
-            yeni_zincir.append(aday_ist)
-
-            # Eğer vardığımız yer istasyonsa depoyu fulle, eğer son hedefse yakıt alma
-            yeni_yakit = (
-                guncel_durum.kalan_yakit - harcanacak_yakit
-                if aday_ist.istasyon_id == hedef_noktasi.istasyon_id
-                else max_yakit
-            )
-
-            yeni_durum = AracDurumu(
-                mevcut_istasyon=aday_ist,
-                kalan_yakit=yeni_yakit,
-                kat_edilen_mesafe=guncel_durum.kat_edilen_mesafe + mesafe_km,
-                istasyon_zinciri=yeni_zincir,
-            )
-
-            # f(n) = g(n) + h(n)
-            g_puani = yeni_durum.kat_edilen_mesafe
-            h_puani = kus_ucusu_mesafe(aday_ist, hedef_noktasi)
-            f_puani = g_puani + h_puani
-
-            heapq.heappush(oncelikli_kuyruk, (f_puani, yeni_durum))
-
-    return None  # Hedefe ulaşılmazsa
+    return None
