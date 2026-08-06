@@ -1,4 +1,8 @@
-pandas
 streamlit
-folium
-streamlit-folium
+pandas
+supabase
+pydeck
+geopy
+polyline
+Pillow
+requests

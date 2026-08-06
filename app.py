@@ -158,7 +158,7 @@ st.sidebar.subheader("🤖 Planlama Modu")
 
 planlama_modu = st.sidebar.radio(
     "Rota nasıl planlansın?",
-    ("Kendim Seçeceğim (İnteraktif Adım Adım)", "Yapay Zeka (A*) Otomatik Planlasın"),
+    ("Kendim Seçeceğim (İnteraktif Adım Adım)", "Yapay Zeka Otomatik Planlasın"),
     help="Yapay zeka modu, menzil ve mesafe maliyetlerini hesaplayarak tüm durakları tek seferde bulur.",
 )
 
@@ -193,7 +193,7 @@ if rota_hesapla:
             # ==========================================
             # HİBRİT KARAR MEKANİZMASI (AI vs MANUEL)
             # ==========================================
-            if planlama_modu == "Yapay Zeka (A*) Otomatik Planlasın":
+            if planlama_modu == "Yapay Zeka Otomatik Planlasın":
                 st.info(
                     "🤖 Yapay zeka tüm rota boyunca en optimal durakları hesaplıyor, lütfen bekleyin..."
                 )
@@ -226,11 +226,11 @@ if rota_hesapla:
                     # Adım sayacını 0'da bırakıyoruz ki interaktif menü çıkmasın, doğrudan harita yüklensin
                     st.session_state.adim_sayaci = 0
                     st.success(
-                        "🎉 Yapay Zeka (A*) rotayı ve durakları kusursuz şekilde planladı!"
+                        "🎉 Yapay Zeka rotayı ve durakları kusursuz şekilde planladı!"
                     )
                 else:
                     st.error(
-                        "A* algoritması bu yakıt menziliyle hedefe ulaşacak kesintisiz bir istasyon zinciri bulamadı."
+                        "Algoritma bu yakıt menziliyle hedefe ulaşacak kesintisiz bir istasyon zinciri bulamadı."
                     )
 
             else:
